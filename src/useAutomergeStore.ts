@@ -52,13 +52,15 @@ export function useAutomergeStore({
         })
 
         Object.values(changes.updated).forEach(([_, record]) => {
-          doc[record.id] = record
+          console.log("updated", record)
+          deepCompareAndUpdate(doc[record.id], record)
         })
 
         Object.values(changes.removed).forEach((record) => {
           delete doc[record.id]
         })
       })
+      console.log("pushed to automerge", handle.docSync())
     }
 
     /* -------------------- Automerge to TLDraw -------------------- */
@@ -66,12 +68,11 @@ export function useAutomergeStore({
       patches,
     }: DocHandleChangePayload<any>) => {
       const toRemove: TLRecord["id"][] = []
-      const toPut: TLRecord[] = []
+      // const toPut: TLRecord[] = []
 
-      patches.forEach((patch) => {
-        console.log(patch)
+      /*patches.forEach((patch) => {
         switch (patch.action) {
-          case "add":
+          case "put":
           case "update": {
             const record = patch.value
             toPut.push(record)
@@ -83,7 +84,18 @@ export function useAutomergeStore({
             break
           }
         }
-      })
+      })*/
+
+      const doc = handle.docSync()
+      if (!doc) {
+        return
+      }
+
+      const toPut = Object.values(JSON.parse(JSON.stringify(doc))).map(
+        (record) => record as TLRecord
+      )
+
+      console.log("pushed to tldraw", handle.docSync())
 
       // put / remove the records in the store
       store.mergeRemoteChanges(() => {
@@ -117,8 +129,15 @@ export function useAutomergeStore({
           }
         })
       }
-      store.clear()
+
+      //      store.clear()
       store.put({ ...doc })
+
+      setStoreWithStatus({
+        store,
+        status: "synced-remote",
+        connectionStatus: "online",
+      })
     })
 
     return () => {
@@ -128,6 +147,51 @@ export function useAutomergeStore({
   }, [handle, store])
 
   return storeWithStatus
+}
+
+import _ from "lodash"
+function deepCompareAndUpdate(objectA: any, objectB: any) {
+  // eslint-disable-line
+  if (_.isArray(objectB)) {
+    if (!_.isArray(objectA)) {
+      // if objectA is not an array, replace it with objectB
+      objectA = objectB.slice()
+    } else {
+      // compare and update array elements
+      for (let i = 0; i < objectB.length; i++) {
+        if (i >= objectA.length) {
+          objectA.push(objectB[i])
+        } else {
+          if (_.isObject(objectB[i]) || _.isArray(objectB[i])) {
+            // if element is an object or array, recursively compare and update
+            deepCompareAndUpdate(objectA[i], objectB[i])
+          } else if (objectA[i] !== objectB[i]) {
+            // update the element
+            objectA[i] = objectB[i]
+          }
+        }
+      }
+      // remove extra elements
+      if (objectA.length > objectB.length) {
+        objectA.splice(objectB.length)
+      }
+    }
+  } else if (_.isObject(objectB)) {
+    _.forIn(objectB, (value, key) => {
+      if (objectA[key] === undefined) {
+        // if key is not in objectA, add it
+        objectA[key] = value
+      } else {
+        if (_.isObject(value) || _.isArray(value)) {
+          // if value is an object or array, recursively compare and update
+          deepCompareAndUpdate(objectA[key], value)
+        } else if (objectA[key] !== value) {
+          // update the value
+          objectA[key] = value
+        }
+      }
+    })
+  }
 }
 
 function handleSync() {
