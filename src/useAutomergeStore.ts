@@ -1,18 +1,9 @@
 import {
-  InstancePresenceRecordType,
   TLAnyShapeUtilConstructor,
-  TLInstancePresence,
   TLRecord,
   TLStoreWithStatus,
-  computed,
-  createPresenceStateDerivation,
   createTLStore,
   defaultShapeUtils,
-  defaultUserPreferences,
-  getUserPreferences,
-  setUserPreferences,
-  react,
-  transact,
   HistoryEntry,
   RecordId,
 } from "@tldraw/tldraw"
@@ -54,7 +45,6 @@ export function useAutomergeStore({
     }: HistoryEntry<TLRecord>) {
       preventPatchApplications = true
       handle.change((doc) => {
-
         Object.values(changes.added).forEach((record) => {
           doc[record.id] = record
         })
@@ -66,8 +56,7 @@ export function useAutomergeStore({
         Object.values(changes.removed).forEach((record) => {
           delete doc[record.id]
         })
-
-      }) 
+      })
       preventPatchApplications = false
     }
 
@@ -97,7 +86,9 @@ export function useAutomergeStore({
         const pathEnd = path[path.length - 2]
         const parts = path.slice(1, -2)
         for (const part of parts) {
-          assert(current[part] !== undefined)
+          if (current[part] === undefined) {
+            throw new Error("NO WAY")
+          }
           current = current[part]
         }
         // splice is a mutator... yay.
@@ -138,7 +129,9 @@ export function useAutomergeStore({
         const parts = path.slice(1, -1)
         const pathEnd = path[path.length - 1]
         for (const part of parts) {
-          assert(current[part] !== undefined)
+          if (current[part] === undefined) {
+            throw new Error("NO WAY")
+          }
           current = current[part]
         }
         current[pathEnd] = value
@@ -152,11 +145,13 @@ export function useAutomergeStore({
         const pathEnd = path[path.length - 2]
         const parts = path.slice(1, -2)
         for (const part of parts) {
-          assert(current[part] !== undefined)
+          if (current[part] === undefined) {
+            throw new Error("NO WAY")
+          }
           current = current[part]
         }
         // TODO: we're not supporting actual splices yet because TLDraw won't generate them natively
-        if (insertionPoint !== 0) { 
+        if (insertionPoint !== 0) {
           throw new Error("Splices are not supported yet")
         }
         current[pathEnd] = value // .splice(insertionPoint, 0, value)
@@ -296,6 +291,7 @@ function deepCompareAndUpdate(objectA: any, objectB: any) {
   }
 }
 
+/*
 function handleSync() {
   // 1.
   // Connect store to yjs store and vis versa, for both the document and awareness
@@ -318,7 +314,7 @@ function handleSync() {
     })
   }
 
-  /* -------------------- Awareness ------------------- */
+  /* -------------------- Awareness ------------------- * /
 
   const yClientId = room.awareness.clientID.toString()
   setUserPreferences({ id: yClientId })
@@ -432,9 +428,5 @@ function handleStatusChange({
     unsubs.push(() => room.off("synced", handleSync))
   }
 }
-function assert(pass: boolean) {
-  if (!pass) {
-    debugger
-    throw new Error("assertion failed")
-  }
-}
+
+*/
