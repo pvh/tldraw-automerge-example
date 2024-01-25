@@ -1,17 +1,12 @@
 import { Tldraw, track, useEditor } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
-import { useYjsStore } from './useYjsStore'
 
-const HOST_URL =
-	import.meta.env.MODE === 'development'
-		? 'ws://localhost:1234'
-		: 'wss://demos.yjs.dev'
+import { useAutomergeStore } from './useAutomergeStore'
+import { useBootstrap } from "@automerge/automerge-repo-react-hooks"
 
-export default function YjsExample() {
-	const store = useYjsStore({
-		roomId: 'example17',
-		hostUrl: HOST_URL,
-	})
+export default function AutomergeExample() {
+	const handle = useBootstrap()
+	const store = useAutomergeStore({ handle })
 
 	return (
 		<div className="tldraw__editor">
