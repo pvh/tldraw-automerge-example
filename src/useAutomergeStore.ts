@@ -14,9 +14,11 @@ import {
   react,
   transact,
   HistoryEntry,
+  RecordId,
 } from "@tldraw/tldraw"
 import { useEffect, useState } from "react"
 import { DEFAULT_STORE } from "./default_store"
+import { type Patch } from "@automerge/automerge/next"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
 
 export function useAutomergeStore({
@@ -42,60 +44,163 @@ export function useAutomergeStore({
     setStoreWithStatus({ status: "loading" })
     const unsubs: (() => void)[] = []
 
+    // A hacky workaround to prevent local changes from being applied twice
+    // once into the automerge doc and then back again.
+    let preventPatchApplications = false
+
     /* -------------------- TLDraw to Automerge -------------------- */
     function syncStoreChangesToAutomergeDoc({
       changes,
     }: HistoryEntry<TLRecord>) {
+      preventPatchApplications = true
       handle.change((doc) => {
+
         Object.values(changes.added).forEach((record) => {
           doc[record.id] = record
         })
 
         Object.values(changes.updated).forEach(([_, record]) => {
-          console.log("updated", record)
           deepCompareAndUpdate(doc[record.id], record)
         })
 
         Object.values(changes.removed).forEach((record) => {
           delete doc[record.id]
         })
-      })
-      console.log("pushed to automerge", handle.docSync())
+
+      }) 
+      preventPatchApplications = false
     }
 
     /* -------------------- Automerge to TLDraw -------------------- */
     const syncAutomergeDocChangesToStore = ({
       patches,
     }: DocHandleChangePayload<any>) => {
-      const toRemove: TLRecord["id"][] = []
-      // const toPut: TLRecord[] = []
+      if (preventPatchApplications) return
 
-      /*patches.forEach((patch) => {
+      const toRemove: TLRecord["id"][] = []
+      const updatedObjects: { [id: string]: TLRecord } = {}
+
+      // For each patch
+      // if we don't have the object, copy it out of the store
+      // put it in the map of objects to put back in the store
+      // apply the patch to that object
+
+      // path: "/camera:page:page/x" => "camera:page:page"
+      const pathToId = (path: string[]): RecordId<any> => {
+        return path[0] as RecordId<any>
+      }
+
+      const applyInsertToObject = (patch: Patch, object: any): TLRecord => {
+        const { path, values } = patch
+        let current = object
+        const insertionPoint = path[path.length - 1]
+        const pathEnd = path[path.length - 2]
+        const parts = path.slice(1, -2)
+        for (const part of parts) {
+          assert(current[part] !== undefined)
+          current = current[part]
+        }
+        // splice is a mutator... yay.
+        const clone = current[pathEnd].slice(0)
+        clone.splice(insertionPoint, 0, ...values)
+        current[pathEnd] = clone
+        return object
+      }
+
+      const applyPutToObject = (patch: Patch, object: any): TLRecord => {
+        const { path, value } = patch
+        let current = object
+        // special case
+        if (path.length === 1) {
+          // this would be creating the object, but we have done
+          return object
+        }
+
+        const parts = path.slice(1, -2)
+        const property = path[path.length - 1]
+        const target = path[path.length - 2]
+
+        if (path.length === 2) {
+          return { ...object, [property]: value }
+        }
+
+        // default case
+        for (const part of parts) {
+          current = current[part]
+        }
+        current[target] = { ...current[target], [property]: value }
+        return object
+      }
+
+      const applyUpdateToObject = (patch: Patch, object: any): TLRecord => {
+        const { path, value } = patch
+        let current = object
+        const parts = path.slice(1, -1)
+        const pathEnd = path[path.length - 1]
+        for (const part of parts) {
+          assert(current[part] !== undefined)
+          current = current[part]
+        }
+        current[pathEnd] = value
+        return object
+      }
+
+      const applySpliceToObject = (patch: Patch, object: any): TLRecord => {
+        const { path, value } = patch
+        let current = object
+        const insertionPoint = path[path.length - 1]
+        const pathEnd = path[path.length - 2]
+        const parts = path.slice(1, -2)
+        for (const part of parts) {
+          assert(current[part] !== undefined)
+          current = current[part]
+        }
+        // TODO: we're not supporting actual splices yet because TLDraw won't generate them natively
+        if (insertionPoint !== 0) { 
+          throw new Error("Splices are not supported yet")
+        }
+        current[pathEnd] = value // .splice(insertionPoint, 0, value)
+        return object
+      }
+
+      patches.forEach((patch) => {
+        const id = pathToId(patch.path)
+        const record =
+          updatedObjects[id] || JSON.parse(JSON.stringify(store.get(id) || {}))
+
         switch (patch.action) {
-          case "put":
-          case "update": {
-            const record = patch.value
-            toPut.push(record)
+          case "insert": {
+            updatedObjects[id] = applyInsertToObject(patch, record)
             break
           }
-          case "delete": {
-            const id = patch.key
+          case "put":
+            updatedObjects[id] = applyPutToObject(patch, record)
+            break
+          case "update": {
+            updatedObjects[id] = applyUpdateToObject(patch, record)
+            break
+          }
+          case "splice": {
+            updatedObjects[id] = applySpliceToObject(patch, record)
+            break
+          }
+          case "del": {
+            const id = pathToId(patch.path)
             toRemove.push(id as TLRecord["id"])
             break
           }
+          default: {
+            console.log("Unsupported patch:", patch)
+          }
         }
-      })*/
+      })
 
       const doc = handle.docSync()
       if (!doc) {
         return
       }
 
-      const toPut = Object.values(JSON.parse(JSON.stringify(doc))).map(
-        (record) => record as TLRecord
-      )
-
-      console.log("pushed to tldraw", handle.docSync())
+      const toPut = Object.values(updatedObjects)
 
       // put / remove the records in the store
       store.mergeRemoteChanges(() => {
@@ -129,9 +234,6 @@ export function useAutomergeStore({
           }
         })
       }
-
-      //      store.clear()
-      store.put({ ...doc })
 
       setStoreWithStatus({
         store,
@@ -328,5 +430,11 @@ function handleStatusChange({
     hasConnectedBefore = true
     room.on("synced", handleSync)
     unsubs.push(() => room.off("synced", handleSync))
+  }
+}
+function assert(pass: boolean) {
+  if (!pass) {
+    debugger
+    throw new Error("assertion failed")
   }
 }
