@@ -4,9 +4,9 @@ import '@tldraw/tldraw/tldraw.css'
 import { useAutomergeStore } from './useAutomergeStore'
 import { useBootstrap } from "@automerge/automerge-repo-react-hooks"
 
-export default function AutomergeExample() {
+export default function AutomergeExample({ userId }: { userId: string }) {
 	const handle = useBootstrap()
-	const store = useAutomergeStore({ handle })
+	const store = useAutomergeStore({ handle, userId })
 
 	return (
 		<div className="tldraw__editor">

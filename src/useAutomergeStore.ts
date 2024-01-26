@@ -6,17 +6,26 @@ import {
   defaultShapeUtils,
   HistoryEntry,
   RecordId,
+  getUserPreferences,
+  setUserPreferences,
+  defaultUserPreferences,
+  createPresenceStateDerivation,
+  InstancePresenceRecordType,
+  computed,
+  react,
 } from "@tldraw/tldraw"
 import { useEffect, useState } from "react"
 import { DEFAULT_STORE } from "./default_store"
-import { type Patch } from "@automerge/automerge/next"
+import * as Automerge from "@automerge/automerge/next"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
 
 export function useAutomergeStore({
   handle,
+  userId,
   shapeUtils = [],
 }: {
   handle: DocHandle<any>
+  userId: string
   shapeUtils?: TLAnyShapeUtilConstructor[]
 }): TLStoreWithStatus {
   const [store] = useState(() => {
@@ -31,6 +40,28 @@ export function useAutomergeStore({
     status: "loading",
   })
 
+  const [, updateLocalState] = useLocalAwareness({
+    handle,
+    userId,
+    initialState: {},
+  })
+
+  const [peerStates, heartbeats] = useRemoteAwareness({
+    handle,
+    localUserId: userId,
+  })
+
+  /* Presence setup */
+  useEffect(() => {
+    // TODO: peer removal when they go away
+    const toRemove = [] as TLRecord["id"][]
+    const toPut = Object.values(peerStates) as TLRecord[]
+
+    // put / remove the records in the store
+    if (toRemove.length) store.remove(toRemove)
+    if (toPut.length) store.put(toPut)
+  }, [store, peerStates])
+
   useEffect(() => {
     setStoreWithStatus({ status: "loading" })
     const unsubs: (() => void)[] = []
@@ -38,6 +69,36 @@ export function useAutomergeStore({
     // A hacky workaround to prevent local changes from being applied twice
     // once into the automerge doc and then back again.
     let preventPatchApplications = false
+
+    setUserPreferences({ id: userId })
+
+    const userPreferences = computed<{
+      id: string
+      color: string
+      name: string
+    }>("userPreferences", () => {
+      const user = getUserPreferences()
+      return {
+        id: user.id,
+        color: user.color ?? defaultUserPreferences.color,
+        name: user.name ?? defaultUserPreferences.name,
+      }
+    })
+
+    const presenceId = InstancePresenceRecordType.createId(userId)
+    const presenceDerivation = createPresenceStateDerivation(
+      userPreferences,
+      presenceId
+    )(store)
+
+    unsubs.push(
+      react("when presence changes", () => {
+        const presence = presenceDerivation.value
+        requestAnimationFrame(() => {
+          updateLocalState(presence)
+        })
+      })
+    )
 
     /* -------------------- TLDraw to Automerge -------------------- */
     function syncStoreChangesToAutomergeDoc({
@@ -79,7 +140,10 @@ export function useAutomergeStore({
         return path[0] as RecordId<any>
       }
 
-      const applyInsertToObject = (patch: Patch, object: any): TLRecord => {
+      const applyInsertToObject = (
+        patch: Automerge.Patch,
+        object: any
+      ): TLRecord => {
         const { path, values } = patch
         let current = object
         const insertionPoint = path[path.length - 1]
@@ -98,7 +162,10 @@ export function useAutomergeStore({
         return object
       }
 
-      const applyPutToObject = (patch: Patch, object: any): TLRecord => {
+      const applyPutToObject = (
+        patch: Automerge.Patch,
+        object: any
+      ): TLRecord => {
         const { path, value } = patch
         let current = object
         // special case
@@ -123,7 +190,10 @@ export function useAutomergeStore({
         return object
       }
 
-      const applyUpdateToObject = (patch: Patch, object: any): TLRecord => {
+      const applyUpdateToObject = (
+        patch: Automerge.Patch,
+        object: any
+      ): TLRecord => {
         const { path, value } = patch
         let current = object
         const parts = path.slice(1, -1)
@@ -138,7 +208,10 @@ export function useAutomergeStore({
         return object
       }
 
-      const applySpliceToObject = (patch: Patch, object: any): TLRecord => {
+      const applySpliceToObject = (
+        patch: Automerge.Patch,
+        object: any
+      ): TLRecord => {
         const { path, value } = patch
         let current = object
         const insertionPoint = path[path.length - 1]
@@ -216,12 +289,12 @@ export function useAutomergeStore({
     unsubs.push(() => handle.off("change", syncAutomergeDocChangesToStore))
 
     handle.doc().then((doc) => {
-      console.log(handle.state, doc)
       if (doc == undefined) {
-        console.log("undefined doc")
         return
-      } else if (Object.values(doc).length === 0) {
-        console.log("empty doc")
+      }
+
+      if (Object.values(doc).length === 0) {
+        console.log("empty doc: initializing")
 
         handle.change((doc) => {
           for (const record of store.allRecords()) {
@@ -241,12 +314,16 @@ export function useAutomergeStore({
       unsubs.forEach((fn) => fn())
       unsubs.length = 0
     }
-  }, [handle, store])
+  }, [handle, store, userId])
 
   return storeWithStatus
 }
 
 import _ from "lodash"
+import {
+  useLocalAwareness,
+  useRemoteAwareness,
+} from "@automerge/automerge-repo-react-hooks"
 function deepCompareAndUpdate(objectA: any, objectB: any) {
   // eslint-disable-line
   if (_.isArray(objectB)) {
@@ -290,143 +367,3 @@ function deepCompareAndUpdate(objectA: any, objectB: any) {
     })
   }
 }
-
-/*
-function handleSync() {
-  // 1.
-  // Connect store to yjs store and vis versa, for both the document and awareness
-
-  if (yStore.yarray.length) {
-    // Replace the store records with the yjs doc records
-    transact(() => {
-      // The records here should be compatible with what's in the store
-      store.clear()
-      const records = yStore.yarray.toJSON().map(({ val }) => val)
-      store.put(records)
-    })
-  } else {
-    // Create the initial store records
-    // Sync the store records to the yjs doc
-    yDoc.transact(() => {
-      for (const record of store.allRecords()) {
-        yStore.set(record.id, record)
-      }
-    })
-  }
-
-  /* -------------------- Awareness ------------------- * /
-
-  const yClientId = room.awareness.clientID.toString()
-  setUserPreferences({ id: yClientId })
-
-  const userPreferences = computed<{
-    id: string
-    color: string
-    name: string
-  }>("userPreferences", () => {
-    const user = getUserPreferences()
-    return {
-      id: user.id,
-      color: user.color ?? defaultUserPreferences.color,
-      name: user.name ?? defaultUserPreferences.name,
-    }
-  })
-
-  // Create the instance presence derivation
-  const presenceId = InstancePresenceRecordType.createId(yClientId)
-  const presenceDerivation = createPresenceStateDerivation(
-    userPreferences,
-    presenceId
-  )(store)
-
-  // Set our initial presence from the derivation's current value
-  room.awareness.setLocalStateField("presence", presenceDerivation.value)
-
-  // When the derivation change, sync presence to to yjs awareness
-  unsubs.push(
-    react("when presence changes", () => {
-      const presence = presenceDerivation.value
-      requestAnimationFrame(() => {
-        room.awareness.setLocalStateField("presence", presence)
-      })
-    })
-  )
-
-  // Sync yjs awareness changes to the store
-  const handleUpdate = (update: {
-    added: number[]
-    updated: number[]
-    removed: number[]
-  }) => {
-    const states = room.awareness.getStates() as Map<
-      number,
-      { presence: TLInstancePresence }
-    >
-
-    const toRemove: TLInstancePresence["id"][] = []
-    const toPut: TLInstancePresence[] = []
-
-    // Connect records to put / remove
-    for (const clientId of update.added) {
-      const state = states.get(clientId)
-      if (state?.presence && state.presence.id !== presenceId) {
-        toPut.push(state.presence)
-      }
-    }
-
-    for (const clientId of update.updated) {
-      const state = states.get(clientId)
-      if (state?.presence && state.presence.id !== presenceId) {
-        toPut.push(state.presence)
-      }
-    }
-
-    for (const clientId of update.removed) {
-      toRemove.push(InstancePresenceRecordType.createId(clientId.toString()))
-    }
-
-    // put / remove the records in the store
-    store.mergeRemoteChanges(() => {
-      if (toRemove.length) store.remove(toRemove)
-      if (toPut.length) store.put(toPut)
-    })
-  }
-
-  room.awareness.on("update", handleUpdate)
-  unsubs.push(() => room.awareness.off("update", handleUpdate))
-
-  setStoreWithStatus({
-    store,
-    status: "synced-remote",
-    connectionStatus: "online",
-  })
-}
-
-let hasConnectedBefore = false
-
-function handleStatusChange({
-  status,
-}: {
-  status: "disconnected" | "connected"
-}) {
-  // If we're disconnected, set the store status to 'synced-remote' and the connection status to 'offline'
-  if (status === "disconnected") {
-    setStoreWithStatus({
-      store,
-      status: "synced-remote",
-      connectionStatus: "offline",
-    })
-    return
-  }
-
-  room.off("synced", handleSync)
-
-  if (status === "connected") {
-    if (hasConnectedBefore) return
-    hasConnectedBefore = true
-    room.on("synced", handleSync)
-    unsubs.push(() => room.off("synced", handleSync))
-  }
-}
-
-*/

@@ -14,10 +14,12 @@ const repo = new Repo({
   storage: new IndexedDBStorageAdapter("tldraw-demo")
 }) 
 
+const userId = Math.random().toString(36).substring(2, 15)
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <RepoContext.Provider value={repo}>
-      <App />
+      <App userId={userId} />
     </RepoContext.Provider>
   </React.StrictMode>,
 )
