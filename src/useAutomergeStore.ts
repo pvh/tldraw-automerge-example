@@ -18,6 +18,11 @@ import { useEffect, useState } from "react"
 import { DEFAULT_STORE } from "./default_store"
 import * as Automerge from "@automerge/automerge/next"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
+import _ from "lodash"
+import {
+  useLocalAwareness,
+  useRemoteAwareness,
+} from "@automerge/automerge-repo-react-hooks"
 
 export function useAutomergeStore({
   handle,
@@ -263,11 +268,6 @@ export function useAutomergeStore({
         }
       })
 
-      const doc = handle.docSync()
-      if (!doc) {
-        return
-      }
-
       const toPut = Object.values(updatedObjects)
 
       // put / remove the records in the store
@@ -319,11 +319,6 @@ export function useAutomergeStore({
   return storeWithStatus
 }
 
-import _ from "lodash"
-import {
-  useLocalAwareness,
-  useRemoteAwareness,
-} from "@automerge/automerge-repo-react-hooks"
 function deepCompareAndUpdate(objectA: any, objectB: any) {
   // eslint-disable-line
   if (_.isArray(objectB)) {
