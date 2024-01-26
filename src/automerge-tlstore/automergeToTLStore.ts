@@ -4,7 +4,7 @@ import * as Automerge from "@automerge/automerge/next"
 export function patchesToUpdatesAndRemoves(
   patches: Automerge.Patch[],
   store: TLStore
-): [TLRecord[], TLRecord["id"][]] {
+) {
   const toRemove: TLRecord["id"][] = []
   const updatedObjects: { [id: string]: TLRecord } = {}
 
@@ -41,7 +41,11 @@ export function patchesToUpdatesAndRemoves(
   })
   const toPut = Object.values(updatedObjects)
 
-  return [toPut, toRemove]
+  // put / remove the records in the store
+  store.mergeRemoteChanges(() => {
+    if (toRemove.length) store.remove(toRemove)
+    if (toPut.length) store.put(toPut)
+  })
 }
 
 // path: "/camera:page:page/x" => "camera:page:page"

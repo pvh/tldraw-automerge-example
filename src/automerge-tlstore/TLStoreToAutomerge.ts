@@ -1,6 +1,24 @@
+import { RecordsDiff, TLRecord } from "@tldraw/tldraw"
 import _ from "lodash"
 
-export function deepCompareAndUpdate(objectA: any, objectB: any) {
+export function applyChangesToAutomerge(
+  doc: any,
+  changes: RecordsDiff<TLRecord>
+) {
+  Object.values(changes.added).forEach((record) => {
+    doc[record.id] = record
+  })
+
+  Object.values(changes.updated).forEach(([_, record]) => {
+    deepCompareAndUpdate(doc[record.id], record)
+  })
+
+  Object.values(changes.removed).forEach((record) => {
+    delete doc[record.id]
+  })
+}
+
+function deepCompareAndUpdate(objectA: any, objectB: any) {
   // eslint-disable-line
   if (_.isArray(objectB)) {
     if (!_.isArray(objectA)) {

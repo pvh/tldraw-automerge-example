@@ -1,7 +1,7 @@
 import { Tldraw, track, useEditor } from '@tldraw/tldraw'
 import '@tldraw/tldraw/tldraw.css'
 
-import { useAutomergeStore } from './useAutomergeStore'
+import { useAutomergeStore } from "./automerge-tlstore/useAutomergeStore"
 import { useBootstrap } from "@automerge/automerge-repo-react-hooks"
 import { DEFAULT_STORE } from "./default_store"
 
