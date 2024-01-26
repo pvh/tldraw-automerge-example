@@ -15,19 +15,13 @@ import {
 } from "@tldraw/tldraw"
 import { useEffect, useState } from "react"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
-import _ from "lodash"
 import {
   useLocalAwareness,
   useRemoteAwareness,
 } from "@automerge/automerge-repo-react-hooks"
 
-import {
-  pathToId,
-  applyInsertToObject,
-  applyPutToObject,
-  applyUpdateToObject,
-  applySpliceToObject,
-} from "./automerge-tlstore/automergeToTLStore"
+import { patchesToUpdatesAndRemoves } from "./automerge-tlstore/automergeToTLStore"
+import { deepCompareAndUpdate } from "./automerge-tlstore/deepCompareAndUpdate"
 
 export function useAutomergeStore({
   handle,
@@ -136,42 +130,7 @@ export function useAutomergeStore({
     }: DocHandleChangePayload<any>) => {
       if (preventPatchApplications) return
 
-      const toRemove: TLRecord["id"][] = []
-      const updatedObjects: { [id: string]: TLRecord } = {}
-
-      patches.forEach((patch) => {
-        const id = pathToId(patch.path)
-        const record =
-          updatedObjects[id] || JSON.parse(JSON.stringify(store.get(id) || {}))
-
-        switch (patch.action) {
-          case "insert": {
-            updatedObjects[id] = applyInsertToObject(patch, record)
-            break
-          }
-          case "put":
-            updatedObjects[id] = applyPutToObject(patch, record)
-            break
-          case "update": {
-            updatedObjects[id] = applyUpdateToObject(patch, record)
-            break
-          }
-          case "splice": {
-            updatedObjects[id] = applySpliceToObject(patch, record)
-            break
-          }
-          case "del": {
-            const id = pathToId(patch.path)
-            toRemove.push(id as TLRecord["id"])
-            break
-          }
-          default: {
-            console.log("Unsupported patch:", patch)
-          }
-        }
-      })
-
-      const toPut = Object.values(updatedObjects)
+      const [toPut, toRemove] = patchesToUpdatesAndRemoves(patches, store)
 
       // put / remove the records in the store
       store.mergeRemoteChanges(() => {
@@ -206,48 +165,4 @@ export function useAutomergeStore({
   }, [handle, store, userId])
 
   return storeWithStatus
-}
-
-function deepCompareAndUpdate(objectA: any, objectB: any) {
-  // eslint-disable-line
-  if (_.isArray(objectB)) {
-    if (!_.isArray(objectA)) {
-      // if objectA is not an array, replace it with objectB
-      objectA = objectB.slice()
-    } else {
-      // compare and update array elements
-      for (let i = 0; i < objectB.length; i++) {
-        if (i >= objectA.length) {
-          objectA.push(objectB[i])
-        } else {
-          if (_.isObject(objectB[i]) || _.isArray(objectB[i])) {
-            // if element is an object or array, recursively compare and update
-            deepCompareAndUpdate(objectA[i], objectB[i])
-          } else if (objectA[i] !== objectB[i]) {
-            // update the element
-            objectA[i] = objectB[i]
-          }
-        }
-      }
-      // remove extra elements
-      if (objectA.length > objectB.length) {
-        objectA.splice(objectB.length)
-      }
-    }
-  } else if (_.isObject(objectB)) {
-    _.forIn(objectB, (value, key) => {
-      if (objectA[key] === undefined) {
-        // if key is not in objectA, add it
-        objectA[key] = value
-      } else {
-        if (_.isObject(value) || _.isArray(value)) {
-          // if value is an object or array, recursively compare and update
-          deepCompareAndUpdate(objectA[key], value)
-        } else if (objectA[key] !== value) {
-          // update the value
-          objectA[key] = value
-        }
-      }
-    })
-  }
 }

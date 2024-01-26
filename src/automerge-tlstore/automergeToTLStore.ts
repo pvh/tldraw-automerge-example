@@ -1,14 +1,55 @@
-import { TLRecord, RecordId } from "@tldraw/tldraw"
+import { TLRecord, RecordId, TLStore } from "@tldraw/tldraw"
 import * as Automerge from "@automerge/automerge/next"
 
+export function patchesToUpdatesAndRemoves(
+  patches: Automerge.Patch[],
+  store: TLStore
+): [TLRecord[], TLRecord["id"][]] {
+  const toRemove: TLRecord["id"][] = []
+  const updatedObjects: { [id: string]: TLRecord } = {}
+
+  patches.forEach((patch) => {
+    const id = pathToId(patch.path)
+    const record =
+      updatedObjects[id] || JSON.parse(JSON.stringify(store.get(id) || {}))
+
+    switch (patch.action) {
+      case "insert": {
+        updatedObjects[id] = applyInsertToObject(patch, record)
+        break
+      }
+      case "put":
+        updatedObjects[id] = applyPutToObject(patch, record)
+        break
+      case "update": {
+        updatedObjects[id] = applyUpdateToObject(patch, record)
+        break
+      }
+      case "splice": {
+        updatedObjects[id] = applySpliceToObject(patch, record)
+        break
+      }
+      case "del": {
+        const id = pathToId(patch.path)
+        toRemove.push(id as TLRecord["id"])
+        break
+      }
+      default: {
+        console.log("Unsupported patch:", patch)
+      }
+    }
+  })
+  const toPut = Object.values(updatedObjects)
+
+  return [toPut, toRemove]
+}
+
 // path: "/camera:page:page/x" => "camera:page:page"
-export const pathToId = (path: string[]): RecordId<any> => {
+const pathToId = (path: string[]): RecordId<any> => {
   return path[0] as RecordId<any>
 }
-export const applyInsertToObject = (
-  patch: Automerge.Patch,
-  object: any
-): TLRecord => {
+
+const applyInsertToObject = (patch: Automerge.Patch, object: any): TLRecord => {
   const { path, values } = patch
   let current = object
   const insertionPoint = path[path.length - 1]
@@ -26,10 +67,8 @@ export const applyInsertToObject = (
   current[pathEnd] = clone
   return object
 }
-export const applyPutToObject = (
-  patch: Automerge.Patch,
-  object: any
-): TLRecord => {
+
+const applyPutToObject = (patch: Automerge.Patch, object: any): TLRecord => {
   const { path, value } = patch
   let current = object
   // special case
@@ -53,10 +92,8 @@ export const applyPutToObject = (
   current[target] = { ...current[target], [property]: value }
   return object
 }
-export const applyUpdateToObject = (
-  patch: Automerge.Patch,
-  object: any
-): TLRecord => {
+
+const applyUpdateToObject = (patch: Automerge.Patch, object: any): TLRecord => {
   const { path, value } = patch
   let current = object
   const parts = path.slice(1, -1)
@@ -70,10 +107,8 @@ export const applyUpdateToObject = (
   current[pathEnd] = value
   return object
 }
-export const applySpliceToObject = (
-  patch: Automerge.Patch,
-  object: any
-): TLRecord => {
+
+const applySpliceToObject = (patch: Automerge.Patch, object: any): TLRecord => {
   const { path, value } = patch
   let current = object
   const insertionPoint = path[path.length - 1]
