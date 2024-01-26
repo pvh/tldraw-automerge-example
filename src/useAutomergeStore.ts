@@ -5,7 +5,6 @@ import {
   createTLStore,
   defaultShapeUtils,
   HistoryEntry,
-  RecordId,
   getUserPreferences,
   setUserPreferences,
   defaultUserPreferences,
@@ -15,14 +14,20 @@ import {
   react,
 } from "@tldraw/tldraw"
 import { useEffect, useState } from "react"
-import { DEFAULT_STORE } from "./default_store"
-import * as Automerge from "@automerge/automerge/next"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
 import _ from "lodash"
 import {
   useLocalAwareness,
   useRemoteAwareness,
 } from "@automerge/automerge-repo-react-hooks"
+
+import {
+  pathToId,
+  applyInsertToObject,
+  applyPutToObject,
+  applyUpdateToObject,
+  applySpliceToObject,
+} from "./automerge-tlstore/automergeToTLStore"
 
 export function useAutomergeStore({
   handle,
@@ -37,7 +42,6 @@ export function useAutomergeStore({
     const store = createTLStore({
       shapeUtils: [...defaultShapeUtils, ...shapeUtils],
     })
-    store.loadSnapshot(DEFAULT_STORE)
     return store
   })
 
@@ -135,107 +139,6 @@ export function useAutomergeStore({
       const toRemove: TLRecord["id"][] = []
       const updatedObjects: { [id: string]: TLRecord } = {}
 
-      // For each patch
-      // if we don't have the object, copy it out of the store
-      // put it in the map of objects to put back in the store
-      // apply the patch to that object
-
-      // path: "/camera:page:page/x" => "camera:page:page"
-      const pathToId = (path: string[]): RecordId<any> => {
-        return path[0] as RecordId<any>
-      }
-
-      const applyInsertToObject = (
-        patch: Automerge.Patch,
-        object: any
-      ): TLRecord => {
-        const { path, values } = patch
-        let current = object
-        const insertionPoint = path[path.length - 1]
-        const pathEnd = path[path.length - 2]
-        const parts = path.slice(1, -2)
-        for (const part of parts) {
-          if (current[part] === undefined) {
-            throw new Error("NO WAY")
-          }
-          current = current[part]
-        }
-        // splice is a mutator... yay.
-        const clone = current[pathEnd].slice(0)
-        clone.splice(insertionPoint, 0, ...values)
-        current[pathEnd] = clone
-        return object
-      }
-
-      const applyPutToObject = (
-        patch: Automerge.Patch,
-        object: any
-      ): TLRecord => {
-        const { path, value } = patch
-        let current = object
-        // special case
-        if (path.length === 1) {
-          // this would be creating the object, but we have done
-          return object
-        }
-
-        const parts = path.slice(1, -2)
-        const property = path[path.length - 1]
-        const target = path[path.length - 2]
-
-        if (path.length === 2) {
-          return { ...object, [property]: value }
-        }
-
-        // default case
-        for (const part of parts) {
-          current = current[part]
-        }
-        current[target] = { ...current[target], [property]: value }
-        return object
-      }
-
-      const applyUpdateToObject = (
-        patch: Automerge.Patch,
-        object: any
-      ): TLRecord => {
-        const { path, value } = patch
-        let current = object
-        const parts = path.slice(1, -1)
-        const pathEnd = path[path.length - 1]
-        for (const part of parts) {
-          if (current[part] === undefined) {
-            throw new Error("NO WAY")
-          }
-          current = current[part]
-        }
-        current[pathEnd] = value
-        return object
-      }
-
-      const applySpliceToObject = (
-        patch: Automerge.Patch,
-        object: any
-      ): TLRecord => {
-        const { path, value } = patch
-        let current = object
-        const insertionPoint = path[path.length - 1]
-        const pathEnd = path[path.length - 2]
-        const parts = path.slice(1, -2)
-        for (const part of parts) {
-          if (current[part] === undefined) {
-            throw new Error("NO WAY")
-          }
-          current = current[part]
-        }
-        // TODO: we're not supporting actual splices yet because TLDraw won't generate them natively
-        if (insertionPoint !== 0) {
-          throw new Error("Splices are not supported yet")
-        }
-        current[pathEnd] = value // .splice(insertionPoint, 0, value)
-        return object
-      }
-
       patches.forEach((patch) => {
         const id = pathToId(patch.path)
         const record =
@@ -277,7 +180,7 @@ export function useAutomergeStore({
       })
     }
 
-    // Sync store changes to the yjs doc
+    // Sync store changes to the automerge doc
     unsubs.push(
       store.listen(syncStoreChangesToAutomergeDoc, {
         source: "user",
@@ -288,21 +191,7 @@ export function useAutomergeStore({
     handle.on("change", syncAutomergeDocChangesToStore)
     unsubs.push(() => handle.off("change", syncAutomergeDocChangesToStore))
 
-    handle.doc().then((doc) => {
-      if (doc == undefined) {
-        return
-      }
-
-      if (Object.values(doc).length === 0) {
-        console.log("empty doc: initializing")
-
-        handle.change((doc) => {
-          for (const record of store.allRecords()) {
-            doc[record.id] = record
-          }
-        })
-      }
-
+    handle.doc().then(() => {
       setStoreWithStatus({
         store,
         status: "synced-remote",
