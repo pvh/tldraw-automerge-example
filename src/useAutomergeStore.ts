@@ -51,7 +51,7 @@ export function useAutomergeStore({
     initialState: {},
   })
 
-  const [peerStates, heartbeats] = useRemoteAwareness({
+  const [peerStates] = useRemoteAwareness({
     handle,
     localUserId: userId,
   })
