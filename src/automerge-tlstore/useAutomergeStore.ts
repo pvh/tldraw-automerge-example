@@ -20,8 +20,8 @@ import {
   useRemoteAwareness,
 } from "@automerge/automerge-repo-react-hooks"
 
-import { patchesToUpdatesAndRemoves } from "./AutomergeToTLStore.js"
-import { applyChangesToAutomerge } from "./TLStoreToAutomerge.js"
+import { patchesToUpdatesAndRemoves as applyPatchesToStore } from "./AutomergeToTLStore.js"
+import { applyChangesToAutomerge as applyStoreChangesToAutomerge } from "./TLStoreToAutomerge.js"
 
 export function useAutomergeStore({
   handle,
@@ -111,7 +111,7 @@ export function useAutomergeStore({
     }: HistoryEntry<TLRecord>) {
       preventPatchApplications = true
       handle.change((doc) => {
-        applyChangesToAutomerge(doc, changes)
+        applyStoreChangesToAutomerge(doc, changes)
       })
       preventPatchApplications = false
     }
@@ -121,7 +121,7 @@ export function useAutomergeStore({
     }: DocHandleChangePayload<any>) => {
       if (preventPatchApplications) return
 
-      patchesToUpdatesAndRemoves(patches, store)
+      applyPatchesToStore(patches, store)
     }
 
     // Sync store changes to the automerge doc
