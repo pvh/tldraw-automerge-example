@@ -105,6 +105,7 @@ export function useAutomergeStore({
     // once into the automerge doc and then back again.
     let preventPatchApplications = false
 
+    /* TLDraw to Automerge */
     function syncStoreChangesToAutomergeDoc({
       changes,
     }: HistoryEntry<TLRecord>) {
