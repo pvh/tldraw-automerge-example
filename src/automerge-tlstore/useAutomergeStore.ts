@@ -54,7 +54,7 @@ export function useAutomergeStore({
     localUserId: userId,
   })
 
-  /* Presence setup */
+  /* ----------- Presence stuff ----------- */
   useEffect(() => {
     // TODO: peer removal when they go away
     const toRemove = [] as TLRecord["id"][]
@@ -66,15 +66,9 @@ export function useAutomergeStore({
   }, [store, peerStates])
 
   useEffect(() => {
-    setStoreWithStatus({ status: "loading" })
-    const unsubs: (() => void)[] = []
-
-    // A hacky workaround to prevent local changes from being applied twice
-    // once into the automerge doc and then back again.
-    let preventPatchApplications = false
-
+    /* ----------- Presence stuff ----------- */
+    // TODO: this should not be in this code
     setUserPreferences({ id: userId })
-
     const userPreferences = computed<{
       id: string
       color: string
@@ -94,16 +88,24 @@ export function useAutomergeStore({
       presenceId
     )(store)
 
-    unsubs.push(
-      react("when presence changes", () => {
-        const presence = presenceDerivation.value
-        requestAnimationFrame(() => {
-          updateLocalState(presence)
-        })
+    return react("when presence changes", () => {
+      const presence = presenceDerivation.value
+      requestAnimationFrame(() => {
+        updateLocalState(presence)
       })
-    )
+    })
+  }, [store, userId, updateLocalState])
+  /* ----------- End presence stuff ----------- */
 
-    /* -------------------- TLDraw to Automerge -------------------- */
+  /* -------------------- TLDraw <--> Automerge -------------------- */
+  useEffect(() => {
+    setStoreWithStatus({ status: "loading" })
+    const unsubs: (() => void)[] = []
+
+    // A hacky workaround to prevent local changes from being applied twice
+    // once into the automerge doc and then back again.
+    let preventPatchApplications = false
+
     function syncStoreChangesToAutomergeDoc({
       changes,
     }: HistoryEntry<TLRecord>) {
@@ -114,11 +116,11 @@ export function useAutomergeStore({
       preventPatchApplications = false
     }
 
-    /* -------------------- Automerge to TLDraw -------------------- */
     const syncAutomergeDocChangesToStore = ({
       patches,
     }: DocHandleChangePayload<any>) => {
       if (preventPatchApplications) return
+
       patchesToUpdatesAndRemoves(patches, store)
     }
 
@@ -133,7 +135,8 @@ export function useAutomergeStore({
     handle.on("change", syncAutomergeDocChangesToStore)
     unsubs.push(() => handle.off("change", syncAutomergeDocChangesToStore))
 
-    handle.doc().then(() => {
+    // TODO: need to think through the various status possibilities here and how they map
+    handle.whenReady().then(() => {
       setStoreWithStatus({
         store,
         status: "synced-remote",
@@ -145,7 +148,7 @@ export function useAutomergeStore({
       unsubs.forEach((fn) => fn())
       unsubs.length = 0
     }
-  }, [handle, store, userId])
+  }, [handle, store])
 
   return storeWithStatus
 }
