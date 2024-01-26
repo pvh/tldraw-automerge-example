@@ -99,7 +99,6 @@ export function useAutomergeStore({
 
   /* -------------------- TLDraw <--> Automerge -------------------- */
   useEffect(() => {
-    setStoreWithStatus({ status: "loading" })
     const unsubs: (() => void)[] = []
 
     // A hacky workaround to prevent local changes from being applied twice
@@ -116,6 +115,14 @@ export function useAutomergeStore({
       preventPatchApplications = false
     }
 
+    unsubs.push(
+      store.listen(syncStoreChangesToAutomergeDoc, {
+        source: "user",
+        scope: "document",
+      })
+    )
+
+    /* Automerge to TLDraw */
     const syncAutomergeDocChangesToStore = ({
       patches,
     }: DocHandleChangePayload<any>) => {
@@ -124,17 +131,10 @@ export function useAutomergeStore({
       applyPatchesToStore(patches, store)
     }
 
-    // Sync store changes to the automerge doc
-    unsubs.push(
-      store.listen(syncStoreChangesToAutomergeDoc, {
-        source: "user",
-        scope: "document",
-      })
-    )
-
     handle.on("change", syncAutomergeDocChangesToStore)
     unsubs.push(() => handle.off("change", syncAutomergeDocChangesToStore))
 
+    /* Defer rendering until the document is ready */
     // TODO: need to think through the various status possibilities here and how they map
     handle.whenReady().then(() => {
       setStoreWithStatus({
