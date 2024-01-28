@@ -12,6 +12,7 @@ import {
   InstancePresenceRecordType,
   computed,
   react,
+  TLStoreSnapshot,
 } from "@tldraw/tldraw"
 import { useEffect, useState } from "react"
 import { DocHandle, DocHandleChangePayload } from "@automerge/automerge-repo"
@@ -20,15 +21,15 @@ import {
   useRemoteAwareness,
 } from "@automerge/automerge-repo-react-hooks"
 
-import { patchesToUpdatesAndRemoves as applyPatchesToStore } from "./AutomergeToTLStore.js"
-import { applyChangesToAutomerge as applyStoreChangesToAutomerge } from "./TLStoreToAutomerge.js"
+import { applyAutomergePatchesToTLStore } from "./AutomergeToTLStore.js"
+import { applyTLStoreChangesToAutomerge } from "./TLStoreToAutomerge.js"
 
 export function useAutomergeStore({
   handle,
   userId,
   shapeUtils = [],
 }: {
-  handle: DocHandle<any>
+  handle: DocHandle<TLStoreSnapshot>
   userId: string
   shapeUtils?: TLAnyShapeUtilConstructor[]
 }): TLStoreWithStatus {
@@ -111,7 +112,7 @@ export function useAutomergeStore({
     }: HistoryEntry<TLRecord>) {
       preventPatchApplications = true
       handle.change((doc) => {
-        applyStoreChangesToAutomerge(doc, changes)
+        applyTLStoreChangesToAutomerge(doc, changes)
       })
       preventPatchApplications = false
     }
@@ -129,7 +130,7 @@ export function useAutomergeStore({
     }: DocHandleChangePayload<any>) => {
       if (preventPatchApplications) return
 
-      applyPatchesToStore(patches, store)
+      applyAutomergePatchesToTLStore(patches, store)
     }
 
     handle.on("change", syncAutomergeDocChangesToStore)
@@ -138,6 +139,17 @@ export function useAutomergeStore({
     /* Defer rendering until the document is ready */
     // TODO: need to think through the various status possibilities here and how they map
     handle.whenReady().then(() => {
+      const doc = handle.docSync()
+      if (!doc) throw new Error("Document not found")
+      if (!doc.store) throw new Error("Document store not initialized")
+
+      store.mergeRemoteChanges(() => {
+        store.loadSnapshot({
+          store: JSON.parse(JSON.stringify(doc.store)),
+          schema: doc.schema,
+        })
+      })
+
       setStoreWithStatus({
         store,
         status: "synced-remote",
