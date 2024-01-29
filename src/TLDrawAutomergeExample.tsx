@@ -2,7 +2,7 @@ import { type DocHandle } from "@automerge/automerge-repo"
 import { type TLStoreSnapshot, Tldraw, track, useEditor } from "@tldraw/tldraw"
 import "@tldraw/tldraw/tldraw.css"
 
-import { useAutomergeStore } from "./useAutomergeStore.js"
+import { useAutomergeStore } from "automerge-tldraw"
 
 export function TLDrawAutomergeExample({
   handle,
